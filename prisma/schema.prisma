@@ -1,0 +1,720 @@
+// CFT — Cameroon Football Talents
+// Prisma schema — PostgreSQL
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// ENUMS
+// ---------------------------------------------------------------------------
+
+enum UserRole {
+  ADMIN
+  PLAYER
+  CLUB
+  RECRUITER
+  AGENT
+  ACADEMY
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum PreferredFoot {
+  LEFT
+  RIGHT
+  BOTH
+}
+
+enum PlayerPosition {
+  GOALKEEPER
+  CENTER_BACK
+  LEFT_BACK
+  RIGHT_BACK
+  DEFENSIVE_MIDFIELD
+  CENTER_MIDFIELD
+  ATTACKING_MIDFIELD
+  LEFT_WINGER
+  RIGHT_WINGER
+  STRIKER
+}
+
+enum AvailabilityStatus {
+  TRANSFER_AVAILABLE
+  LOAN_AVAILABLE
+  FREE_AGENT
+  NOT_AVAILABLE
+}
+
+enum LeagueType {
+  LEAGUE
+  CUP
+}
+
+enum MatchStatus {
+  SCHEDULED
+  LIVE
+  FINISHED
+  POSTPONED
+  CANCELED
+}
+
+enum VideoCategory {
+  HIGHLIGHTS
+  FULL_MATCH
+  COMPILATION
+  TRAINING
+  INTERVIEW
+}
+
+enum PhotoCategory {
+  PORTRAIT
+  ACTION
+  MATCH
+  TRAINING
+  NATIONAL_TEAM
+}
+
+enum CareerEntryType {
+  CLUB
+  LOAN
+  ACADEMY
+  NATIONAL_TEAM
+}
+
+enum TransferType {
+  PERMANENT
+  LOAN
+  FREE
+  YOUTH
+}
+
+enum TransferStatus {
+  RUMOR
+  CONFIRMED
+  COMPLETED
+}
+
+enum TransferWindow {
+  SUMMER
+  WINTER
+}
+
+enum NationalTeamCategory {
+  SENIOR
+  U23
+  U20
+  U17
+}
+
+enum InjurySeverity {
+  MINOR
+  MODERATE
+  SEVERE
+}
+
+enum InjuryStatus {
+  ONGOING
+  RECOVERED
+}
+
+enum NewsCategory {
+  TRANSFERTS
+  PERFORMANCES
+  SELECTIONS
+  BLESSURES
+  ACADEMIES
+  INTERVIEWS
+}
+
+enum NotificationType {
+  NEW_VIDEO
+  NEW_PLAYER
+  TRANSFER
+  GOAL
+  CALL_UP
+  MESSAGE
+  SYSTEM
+}
+
+enum SubscriptionPlan {
+  FREE
+  RECRUITER_PRO
+  CLUB_PRO
+  AGENCY
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  CANCELED
+  EXPIRED
+  TRIALING
+}
+
+// ---------------------------------------------------------------------------
+// AUTH (NextAuth) + USER
+// ---------------------------------------------------------------------------
+
+model User {
+  id            String    @id @default(cuid())
+  name          String
+  email         String    @unique
+  emailVerified DateTime?
+  image         String?
+  passwordHash  String?
+  role          UserRole  @default(RECRUITER)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  accounts Account[]
+  sessions Session[]
+
+  player Player?
+  club   Club?   @relation("ClubManagers", fields: [clubId], references: [id])
+  clubId String?
+
+  favorites        Favorite[]
+  scoutReports     ScoutReport[]
+  notifications    Notification[]
+  sentMessages     Message[]      @relation("SentMessages")
+  receivedMessages Message[]      @relation("ReceivedMessages")
+  news             News[]
+  subscription     Subscription?
+
+  @@index([clubId])
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ---------------------------------------------------------------------------
+// PLAYER
+// ---------------------------------------------------------------------------
+
+model Player {
+  id        String @id @default(cuid())
+  slug      String @unique
+  firstName String
+  lastName  String
+
+  photoUrl          String?
+  coverUrl          String?
+  birthDate         DateTime
+  birthCity         String?
+  nationality       String
+  secondNationality String?
+
+  heightCm Int?
+  weightKg Int?
+
+  preferredFoot      PreferredFoot    @default(RIGHT)
+  position           PlayerPosition
+  secondaryPositions PlayerPosition[]
+  shirtNumber        Int?
+
+  clubId String?
+  club   Club?   @relation(fields: [clubId], references: [id])
+
+  academyId String?
+  academy   Academy? @relation(fields: [academyId], references: [id])
+
+  agentId String?
+  agent   Agent?  @relation(fields: [agentId], references: [id])
+
+  contractEndDate DateTime?
+  estimatedValue  Int? // in EUR
+  availability    AvailabilityStatus @default(NOT_AVAILABLE)
+
+  bio String? @db.Text
+
+  status   ApprovalStatus @default(PENDING)
+  featured Boolean        @default(false)
+
+  userId String? @unique
+  user   User?   @relation(fields: [userId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  statistics        PlayerStatistics[]
+  technicalProfile  TechnicalProfile?
+  videos            PlayerVideo[]
+  photos            PlayerPhoto[]
+  careerHistory     CareerHistory[]
+  transfersFrom     Transfer[]         @relation("TransferPlayer")
+  honors            Honor[]
+  nationalTeamCalls NationalTeamCall[]
+  injuries          Injury[]
+  suspensions       Suspension[]
+  scoutReports      ScoutReport[]
+  favoritedBy       Favorite[]
+
+  @@index([clubId])
+  @@index([position])
+  @@index([nationality])
+  @@index([status])
+}
+
+model TechnicalProfile {
+  id       String @id @default(cuid())
+  playerId String @unique
+  player   Player @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  speed        Int @default(50)
+  technique    Int @default(50)
+  vision       Int @default(50)
+  power        Int @default(50)
+  aerialDuel   Int @default(50)
+  acceleration Int @default(50)
+  stamina      Int @default(50)
+  leadership   Int @default(50)
+  discipline   Int @default(50)
+  positioning  Int @default(50)
+  control      Int @default(50)
+  finishing    Int @default(50)
+
+  updatedAt DateTime @updatedAt
+}
+
+model PlayerStatistics {
+  id       String @id @default(cuid())
+  playerId String
+  player   Player @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  seasonId String
+  season   Season @relation(fields: [seasonId], references: [id])
+
+  clubId String?
+  club   Club?   @relation(fields: [clubId], references: [id])
+
+  matches           Int   @default(0)
+  starts            Int   @default(0)
+  minutesPlayed     Int   @default(0)
+  goals             Int   @default(0)
+  assists           Int   @default(0)
+  shots             Int   @default(0)
+  shotsOnTarget     Int   @default(0)
+  dribbles          Int   @default(0)
+  interceptions     Int   @default(0)
+  duelsWon          Int   @default(0)
+  fouls             Int   @default(0)
+  yellowCards       Int   @default(0)
+  redCards          Int   @default(0)
+  penalties         Int   @default(0)
+  passAccuracy      Float @default(0)
+  successfulCrosses Int   @default(0)
+
+  @@unique([playerId, seasonId, clubId])
+  @@index([seasonId])
+}
+
+model PlayerVideo {
+  id           String        @id @default(cuid())
+  playerId     String
+  player       Player        @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  title        String
+  url          String
+  thumbnailUrl String?
+  category     VideoCategory
+  durationSec  Int?
+  views        Int           @default(0)
+  createdAt    DateTime      @default(now())
+
+  @@index([playerId])
+  @@index([category])
+}
+
+model PlayerPhoto {
+  id        String        @id @default(cuid())
+  playerId  String
+  player    Player        @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  url       String
+  category  PhotoCategory
+  caption   String?
+  createdAt DateTime      @default(now())
+
+  @@index([playerId])
+}
+
+model CareerHistory {
+  id          String          @id @default(cuid())
+  playerId    String
+  player      Player          @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  clubId      String?
+  club        Club?           @relation(fields: [clubId], references: [id])
+  clubName    String
+  type        CareerEntryType @default(CLUB)
+  startDate   DateTime
+  endDate     DateTime?
+  appearances Int?
+  goals       Int?
+
+  @@index([playerId])
+}
+
+model Transfer {
+  id           String         @id @default(cuid())
+  playerId     String
+  player       Player         @relation("TransferPlayer", fields: [playerId], references: [id], onDelete: Cascade)
+  fromClubId   String?
+  fromClub     Club?          @relation("TransferFromClub", fields: [fromClubId], references: [id])
+  toClubId     String?
+  toClub       Club?          @relation("TransferToClub", fields: [toClubId], references: [id])
+  transferDate DateTime
+  transferFee  Int?
+  type         TransferType   @default(PERMANENT)
+  status       TransferStatus @default(COMPLETED)
+  window       TransferWindow @default(SUMMER)
+  createdAt    DateTime       @default(now())
+
+  @@index([playerId])
+}
+
+model Honor {
+  id          String  @id @default(cuid())
+  title       String
+  competition String
+  seasonLabel String?
+  year        Int?
+  playerId    String?
+  player      Player? @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  clubId      String?
+  club        Club?   @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  @@index([playerId])
+  @@index([clubId])
+}
+
+model NationalTeam {
+  id        String               @id @default(cuid())
+  name      String
+  category  NationalTeamCategory @default(SENIOR)
+  logoUrl   String?
+  coachName String?
+
+  calls NationalTeamCall[]
+}
+
+model NationalTeamCall {
+  id             String       @id @default(cuid())
+  playerId       String
+  player         Player       @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  nationalTeamId String
+  nationalTeam   NationalTeam @relation(fields: [nationalTeamId], references: [id])
+  caps           Int          @default(0)
+  goals          Int          @default(0)
+  firstCallDate  DateTime?
+  competition    String?
+
+  @@unique([playerId, nationalTeamId])
+}
+
+model Injury {
+  id          String         @id @default(cuid())
+  playerId    String
+  player      Player         @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  description String
+  severity    InjurySeverity @default(MINOR)
+  status      InjuryStatus   @default(ONGOING)
+  startDate   DateTime
+  endDate     DateTime?
+
+  @@index([playerId])
+}
+
+model Suspension {
+  id            String    @id @default(cuid())
+  playerId      String
+  player        Player    @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  reason        String
+  competition   String?
+  matchesBanned Int       @default(1)
+  startDate     DateTime
+  endDate       DateTime?
+
+  @@index([playerId])
+}
+
+// ---------------------------------------------------------------------------
+// CLUB / LEAGUE / SEASON / MATCH
+// ---------------------------------------------------------------------------
+
+model Club {
+  id              String  @id @default(cuid())
+  slug            String  @unique
+  name            String
+  shortName       String?
+  logoUrl         String?
+  coverUrl        String?
+  foundedYear     Int?
+  city            String
+  stadiumName     String?
+  stadiumCapacity Int?
+  coachName       String?
+  description     String? @db.Text
+
+  leagueId String?
+  league   League? @relation(fields: [leagueId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  players       Player[]
+  managers      User[]             @relation("ClubManagers")
+  statistics    PlayerStatistics[]
+  careerEntries CareerHistory[]
+  transfersOut  Transfer[]         @relation("TransferFromClub")
+  transfersIn   Transfer[]         @relation("TransferToClub")
+  honors        Honor[]
+  standings     LeagueStanding[]
+  homeMatches   Match[]            @relation("HomeClub")
+  awayMatches   Match[]            @relation("AwayClub")
+  photos        ClubPhoto[]
+
+  @@index([leagueId])
+}
+
+model ClubPhoto {
+  id        String   @id @default(cuid())
+  clubId    String
+  club      Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  url       String
+  caption   String?
+  createdAt DateTime @default(now())
+}
+
+model League {
+  id          String     @id @default(cuid())
+  slug        String     @unique
+  name        String
+  type        LeagueType @default(LEAGUE)
+  tier        Int        @default(1)
+  country     String     @default("Cameroun")
+  logoUrl     String?
+  description String?    @db.Text
+
+  clubs   Club[]
+  seasons Season[]
+  matches Match[]
+
+  createdAt DateTime @default(now())
+}
+
+model Season {
+  id        String   @id @default(cuid())
+  label     String // e.g. "2024-2025"
+  leagueId  String
+  league    League   @relation(fields: [leagueId], references: [id])
+  startDate DateTime
+  endDate   DateTime
+  isCurrent Boolean  @default(false)
+
+  standings  LeagueStanding[]
+  matches    Match[]
+  statistics PlayerStatistics[]
+
+  @@unique([leagueId, label])
+}
+
+model LeagueStanding {
+  id       String @id @default(cuid())
+  seasonId String
+  season   Season @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  clubId   String
+  club     Club   @relation(fields: [clubId], references: [id])
+
+  position     Int @default(0)
+  played       Int @default(0)
+  won          Int @default(0)
+  drawn        Int @default(0)
+  lost         Int @default(0)
+  goalsFor     Int @default(0)
+  goalsAgainst Int @default(0)
+  points       Int @default(0)
+
+  @@unique([seasonId, clubId])
+}
+
+model Match {
+  id         String      @id @default(cuid())
+  seasonId   String
+  season     Season      @relation(fields: [seasonId], references: [id])
+  leagueId   String
+  league     League      @relation(fields: [leagueId], references: [id])
+  homeClubId String
+  homeClub   Club        @relation("HomeClub", fields: [homeClubId], references: [id])
+  awayClubId String
+  awayClub   Club        @relation("AwayClub", fields: [awayClubId], references: [id])
+  homeScore  Int?
+  awayScore  Int?
+  matchDate  DateTime
+  venue      String?
+  round      String?
+  status     MatchStatus @default(SCHEDULED)
+
+  @@index([seasonId])
+  @@index([leagueId])
+}
+
+// ---------------------------------------------------------------------------
+// AGENT / ACADEMY
+// ---------------------------------------------------------------------------
+
+model Agent {
+  id         String  @id @default(cuid())
+  name       String
+  agencyName String?
+  email      String?
+  phone      String?
+  photoUrl   String?
+  bio        String? @db.Text
+
+  players Player[]
+}
+
+model Academy {
+  id           String  @id @default(cuid())
+  slug         String  @unique
+  name         String
+  city         String?
+  logoUrl      String?
+  description  String? @db.Text
+  foundedYear  Int?
+  contactEmail String?
+
+  players Player[]
+}
+
+// ---------------------------------------------------------------------------
+// SCOUTING / NEWS / NOTIFICATIONS / MESSAGING / SUBSCRIPTIONS
+// ---------------------------------------------------------------------------
+
+model ScoutReport {
+  id             String   @id @default(cuid())
+  playerId       String
+  player         Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  recruiterId    String
+  recruiter      User     @relation(fields: [recruiterId], references: [id])
+  rating         Int      @default(0) // 0-100
+  strengths      String?  @db.Text
+  weaknesses     String?  @db.Text
+  notes          String?  @db.Text
+  recommendation String?
+  createdAt      DateTime @default(now())
+
+  @@index([playerId])
+  @@index([recruiterId])
+}
+
+model Favorite {
+  id          String   @id @default(cuid())
+  recruiterId String
+  recruiter   User     @relation(fields: [recruiterId], references: [id], onDelete: Cascade)
+  playerId    String
+  player      Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+
+  @@unique([recruiterId, playerId])
+}
+
+model News {
+  id            String       @id @default(cuid())
+  slug          String       @unique
+  title         String
+  excerpt       String
+  content       String       @db.Text
+  coverImageUrl String?
+  category      NewsCategory
+  authorId      String
+  author        User         @relation(fields: [authorId], references: [id])
+  published     Boolean      @default(false)
+  publishedAt   DateTime?
+  views         Int          @default(0)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  @@index([category])
+  @@index([published])
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      NotificationType
+  title     String
+  message   String
+  link      String?
+  read      Boolean          @default(false)
+  createdAt DateTime         @default(now())
+
+  @@index([userId])
+  @@index([read])
+}
+
+model Message {
+  id         String   @id @default(cuid())
+  senderId   String
+  sender     User     @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
+  receiverId String
+  receiver   User     @relation("ReceivedMessages", fields: [receiverId], references: [id], onDelete: Cascade)
+  content    String   @db.Text
+  read       Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  @@index([senderId])
+  @@index([receiverId])
+}
+
+model Subscription {
+  id                   String             @id @default(cuid())
+  userId               String             @unique
+  user                 User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan                 SubscriptionPlan   @default(FREE)
+  status               SubscriptionStatus @default(ACTIVE)
+  startDate            DateTime           @default(now())
+  endDate              DateTime?
+  stripeCustomerId     String?
+  stripeSubscriptionId String?
+}
